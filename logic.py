@@ -3,6 +3,8 @@ from datetime import datetime
 from config import DATABASE 
 import os
 import cv2
+import numpy as np
+from math import sqrt, ceil, floor
 
 class DatabaseManager:
     def __init__(self, database):
@@ -70,35 +72,95 @@ class DatabaseManager:
             conn.execute('''UPDATE prizes SET used = 1 WHERE prize_id = ?''', (prize_id,))
             conn.commit()
 
+    def get_winners_count(self, prize_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cur = conn.cursor()
+            cur.execute('SELECT COUNT(*) FROM winners WHERE prize_id = ?', (prize_id, ))
+            return cur.fetchall()[0][0]
+    
+    def get_winners_img(self, user_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cur = conn.cursor()
+            cur.execute(''' 
+                SELECT image FROM winners 
+                INNER JOIN prizes ON winners.prize_id = prizes.prize_id
+                WHERE user_id = ?
+            ''', (user_id, ))
+            return cur.fetchall()
+        
+    def get_rating(self):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT users.user_name, COUNT(winners.prize_id) AS count_prizes
+                FROM winners
+                INNER JOIN users ON users.user_id = winners.user_id
+                GROUP BY winners.user_id
+                ORDER BY count_prizes DESC
+                LIMIT 10
+            ''')
+            return cur.fetchall()
 
     def get_users(self):
         conn = sqlite3.connect(self.database)
         with conn:
-            cur = conn.cursor("SELECT * FROM users")
-            cur.execute()
-        return [x[0] for x in cur.fetchall()] 
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM users")
+            return [x[0] for x in cur.fetchall()] 
         
     def get_prize_img(self, prize_id):
         conn = sqlite3.connect(self.database)
         with conn:
-            cur = conn.cursor("SELECT image FROM prizes WHERE prize_id = ?", (prize_id,))
-            cur.execute()
-        return cur.fetchall()[0][0]
+            cur = conn.cursor()
+            cur.execute("SELECT image FROM prizes WHERE prize_id = ?", (prize_id,))
+            return cur.fetchall()[0][0]
 
     def get_random_prize(self):
         conn = sqlite3.connect(self.database)
         with conn:
-            cur = conn.cursor("SELECT * FROM prizes WHERE used = 0 ORDER BY RANDOM() LIMIT 1")
-            cur.execute()
-        return cur.fetchall()[0]
-    
-  
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM prizes WHERE used = 0 ORDER BY RANDOM() LIMIT 1")
+            return cur.fetchall()[0]
+
+
 def hide_img(img_name):
     image = cv2.imread(f'img/{img_name}')
     blurred_image = cv2.GaussianBlur(image, (15, 15), 0)
     pixelated_image = cv2.resize(blurred_image, (30, 30), interpolation=cv2.INTER_NEAREST)
     pixelated_image = cv2.resize(pixelated_image, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
     cv2.imwrite(f'hidden_img/{img_name}', pixelated_image)
+
+
+def create_collage(image_paths):
+    if not image_paths:
+        return None
+        
+    images = []
+    for path in image_paths:
+        image = cv2.imread(path)
+        if image is not None:
+            image = cv2.resize(image, (200, 200))
+            images.append(image)
+
+    if not images:
+        return None
+
+    num_images = len(images)
+    num_cols = floor(sqrt(num_images))
+    num_rows = ceil(num_images/num_cols) 
+    
+    collage = np.zeros((num_rows * 200, num_cols * 200, 3), dtype=np.uint8)
+    
+    for i, image in enumerate(images):
+        row = i // num_cols
+        col = i % num_cols
+        collage[row*200:(row+1)*200, col*200:(col+1)*200, :] = image
+    
+    return collage
+
 
 if __name__ == '__main__':
     manager = DatabaseManager(DATABASE)
